@@ -85,18 +85,28 @@ def get_calendar_today() -> str:
         now = datetime.now(TZ)
         start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         end = now.replace(hour=23, minute=59, second=59, microsecond=0).isoformat()
-        events_result = service.events().list(
-            calendarId="primary",
-            timeMin=start,
-            timeMax=end,
-            singleEvents=True,
-            orderBy="startTime",
-        ).execute()
-        events = events_result.get("items", [])
-        if not events:
+
+        calendars = service.calendarList().list().execute().get("items", [])
+        all_events = []
+        for cal in calendars:
+            try:
+                result = service.events().list(
+                    calendarId=cal["id"],
+                    timeMin=start,
+                    timeMax=end,
+                    singleEvents=True,
+                    orderBy="startTime",
+                ).execute()
+                all_events.extend(result.get("items", []))
+            except Exception:
+                pass
+
+        all_events.sort(key=lambda e: e["start"].get("dateTime", e["start"].get("date", "")))
+
+        if not all_events:
             return "нет событий на сегодня"
         lines = []
-        for e in events:
+        for e in all_events:
             title = e.get("summary", "(без названия)")
             start_raw = e["start"].get("dateTime", e["start"].get("date", ""))
             if "T" in start_raw:
