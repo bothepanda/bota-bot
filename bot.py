@@ -208,21 +208,28 @@ def build_brief() -> str:
     parts.append(format_open_tasks(tasks))
     parts.append("")
 
-    parts.append("*━━ ДЕДЛАЙНЫ (30 дней) ━━*")
+    parts.append("*━━ ДЕДЛАЙНЫ ━━*")
     if deadlines:
         for d in deadlines:
             props = d["properties"]
-            name = _page_title(d)
+            # title field is "Program"
+            prog = props.get("Program", {}).get("title", [])
+            name = prog[0]["plain_text"] if prog else _page_title(d)
             dl = (props.get("Deadline") or {}).get("date") or {}
-            dl_start = dl.get("start", "?")
-            if dl_start != "?":
+            dl_start = dl.get("start", "")
+            if dl_start:
                 try:
-                    dl_start = date.fromisoformat(dl_start).strftime("%d.%m")
+                    dl_start = date.fromisoformat(dl_start).strftime("%d.%m.%Y")
                 except ValueError:
                     pass
-            parts.append(f"📅 {dl_start} — {name}")
+            status_prop = (props.get("Status") or {}).get("select") or {}
+            status = status_prop.get("name", "")
+            line = f"📅 {dl_start} — {name}"
+            if status:
+                line += f" _{status}_"
+            parts.append(line)
     else:
-        parts.append("нет дедлайнов в ближайшие 30 дней")
+        parts.append("нет дедлайнов")
     parts.append("")
 
     parts.append("*━━ КОНТЕНТ В РАБОТЕ ━━*")
