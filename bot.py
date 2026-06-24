@@ -349,7 +349,7 @@ async def handle_update_task(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     text = update.message.text.strip()
     # Format: "обнови: [old] → [new]"
-    m = re.match(r"(?i)обнови[:\s]+(.+?)\s*[→->]+\s*(.+)", text)
+    m = re.match(r"(?i)обнови[\s:–\-]+(.+?)\s*[→\-–]+\s*(.+)", text)
     if not m:
         await update.message.reply_text(
             "Формат: `обнови: [задача] → [новое название]`\n"
