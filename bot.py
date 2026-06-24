@@ -48,8 +48,7 @@ def _google_creds() -> Credentials:
         client_secret=data["client_secret"],
         scopes=data["scopes"],
     )
-    if not creds.valid:
-        creds.refresh(google.auth.transport.requests.Request())
+    creds.refresh(google.auth.transport.requests.Request())
     return creds
 
 
@@ -75,8 +74,8 @@ def get_gmail_summary() -> str:
             lines.append(f"• {sender}: {subject}")
         return "\n".join(lines)
     except Exception as e:
-        logger.error(f"gmail error: {e}")
-        return "ошибка загрузки почты"
+        logger.error(f"gmail error: {type(e).__name__}: {e}")
+        return f"ошибка почты: {type(e).__name__}: {str(e)[:100]}"
 
 
 def get_calendar_today() -> str:
@@ -107,8 +106,8 @@ def get_calendar_today() -> str:
                 lines.append(f"• {title}")
         return "\n".join(lines)
     except Exception as e:
-        logger.error(f"calendar error: {e}")
-        return "ошибка загрузки календаря"
+        logger.error(f"calendar error: {type(e).__name__}: {e}")
+        return f"ошибка календаря: {type(e).__name__}: {str(e)[:100]}"
 
 
 # ── Notion helpers ──────────────────────────────────────────────────────────
