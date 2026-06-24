@@ -1,10 +1,11 @@
 import logging
 import os
+import re
 from datetime import date, datetime, time, timedelta
 
 import pytz
 from notion_client import Client
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonCommands, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -239,6 +240,57 @@ def build_brief() -> str:
     return "\n".join(parts)
 
 
+RU_MONTHS = {
+    "января": 1, "февраля": 2, "марта": 3, "апреля": 4,
+    "мая": 5, "июня": 6, "июля": 7, "августа": 8,
+    "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
+}
+
+
+def parse_ru_date(text: str) -> date | None:
+    m = re.search(r"(\d{1,2})\s+(" + "|".join(RU_MONTHS) + r")(?:\s+(\d{4}))?", text, re.I)
+    if not m:
+        return None
+    day = int(m.group(1))
+    month = RU_MONTHS[m.group(2).lower()]
+    year = int(m.group(3)) if m.group(3) else date.today().year
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def update_task_name_and_date(old_name: str, new_name: str, remind_date: date | None) -> bool:
+    results = notion.databases.query(
+        database_id=TASKS_DB,
+        filter={
+            "or": [
+                {"property": "Status", "select": {"equals": "Open"}},
+                {"property": "Status", "select": {"equals": "Unknown"}},
+            ]
+        },
+    )
+    best_page = None
+    best_score = 0.0
+    for page in results["results"]:
+        titles = page["properties"]["Name"]["title"]
+        title = titles[0]["plain_text"] if titles else ""
+        score = _fuzzy_match(old_name, title)
+        if score > best_score:
+            best_score = score
+            best_page = page
+
+    if best_score < 0.3 or best_page is None:
+        return False
+
+    props: dict = {"Name": {"title": [{"text": {"content": new_name}}]}}
+    if remind_date:
+        props["Date"] = {"date": {"start": remind_date.isoformat()}}
+
+    notion.pages.update(page_id=best_page["id"], properties=props)
+    return True
+
+
 # ── Scheduled jobs ───────────────────────────────────────────────────────────
 
 async def job_morning_brief(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -281,14 +333,44 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     await update.message.reply_text(
         "Привет! Я твой планировщик дня.\n\n"
-        "Просто напиши задачи — каждую на новой строке.\n"
-        "Когда сделала — напиши: `готово: название`\n\n"
+        "Просто напиши задачи — каждую на новой строке.\n\n"
         "Команды:\n"
-        "/tasks — открытые задачи\n"
         "/brief — брифинг прямо сейчас\n"
-        "/skip — пропустить вечернюю сверку",
+        "/tasks — открытые задачи с кнопками\n"
+        "/skip — пропустить вечернюю сверку\n\n"
+        "_Обновить задачу:_\n"
+        "`обнови: who youth council → отправила заявку, проверить ответ 1 августа 2026`",
         parse_mode="Markdown",
     )
+
+
+async def handle_update_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_chat.id != CHAT_ID:
+        return
+    text = update.message.text.strip()
+    # Format: "обнови: [old] → [new]"
+    m = re.match(r"(?i)обнови[:\s]+(.+?)\s*[→->]+\s*(.+)", text)
+    if not m:
+        await update.message.reply_text(
+            "Формат: `обнови: [задача] → [новое название]`\n"
+            "Можно добавить дату: `... проверить ответ 1 августа 2026`",
+            parse_mode="Markdown",
+        )
+        return
+
+    old_name = m.group(1).strip()
+    new_name = m.group(2).strip()
+    remind_date = parse_ru_date(new_name)
+
+    if update_task_name_and_date(old_name, new_name, remind_date):
+        reply = f"✏️ Обновила: _{new_name}_"
+        if remind_date:
+            reply += f"\n📅 Напомню {remind_date.strftime('%d.%m.%Y')}"
+        await update.message.reply_text(reply, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(
+            f"Не нашла задачу «{old_name}». Напиши /tasks чтобы увидеть список."
+        )
 
 
 def tasks_keyboard(tasks: list) -> InlineKeyboardMarkup:
@@ -394,14 +476,31 @@ async def handle_tasks_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+async def post_init(app: Application) -> None:
+    await app.bot.set_my_commands([
+        BotCommand("brief", "☀️ Брифинг на сегодня"),
+        BotCommand("tasks", "🔲 Открытые задачи"),
+        BotCommand("skip", "🌙 Пропустить вечернюю сверку"),
+    ])
+    await app.bot.set_chat_menu_button(
+        chat_id=CHAT_ID, menu_button=MenuButtonCommands()
+    )
+
+
 def main() -> None:
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("brief", cmd_brief))
     app.add_handler(CommandHandler("skip", cmd_skip))
     app.add_handler(CallbackQueryHandler(handle_button, pattern=r"^done:"))
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & filters.Regex(r"(?i)^обнови[:\s]"),
+            handle_update_task,
+        )
+    )
     app.add_handler(
         MessageHandler(
             filters.TEXT & filters.Regex(r"(?i)^(готово|сделала|done|✓):"),
