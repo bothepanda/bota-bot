@@ -4,9 +4,10 @@ from datetime import date, datetime, time, timedelta
 
 import pytz
 from notion_client import Client
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -262,12 +263,14 @@ async def job_evening_checkin(context: ContextTypes.DEFAULT_TYPE) -> None:
     if not tasks:
         return
 
-    lines = ["🌙 *Вечерняя сверка*\n\nЧто из этого сделала?\n"]
+    lines = ["🌙 *Вечерняя сверка*\n\nЧто из этого сделала?"]
     for t in tasks:
         lines.append(f"🔲 {_task_title(t)}")
-    lines.append("\n_Напиши 'готово: [задача]' или /skip_")
     await context.bot.send_message(
-        chat_id=CHAT_ID, text="\n".join(lines), parse_mode="Markdown"
+        chat_id=CHAT_ID,
+        text="\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=tasks_keyboard(tasks),
     )
 
 
@@ -288,12 +291,27 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+def tasks_keyboard(tasks: list) -> InlineKeyboardMarkup:
+    buttons = []
+    for t in tasks:
+        page_id = t["id"].replace("-", "")
+        name = _task_title(t)
+        short = name[:30] + "…" if len(name) > 30 else name
+        buttons.append([InlineKeyboardButton(f"✅ {short}", callback_data=f"done:{page_id}")])
+    return InlineKeyboardMarkup(buttons)
+
+
 async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat.id != CHAT_ID:
         return
     tasks = get_open_tasks()
+    if not tasks:
+        await update.message.reply_text("нет открытых задач ✨")
+        return
     await update.message.reply_text(
-        "*Открытые задачи:*\n" + format_open_tasks(tasks), parse_mode="Markdown"
+        "*Открытые задачи:*\n" + format_open_tasks(tasks),
+        parse_mode="Markdown",
+        reply_markup=tasks_keyboard(tasks),
     )
 
 
@@ -328,6 +346,28 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
 
 
+async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if not data.startswith("done:"):
+        return
+    page_id = data[5:]
+    # re-insert dashes: 8-4-4-4-12
+    page_id = f"{page_id[:8]}-{page_id[8:12]}-{page_id[12:16]}-{page_id[16:20]}-{page_id[20:]}"
+    try:
+        page = notion.pages.retrieve(page_id)
+        titles = page["properties"]["Name"]["title"]
+        name = titles[0]["plain_text"] if titles else "задача"
+        notion.pages.update(
+            page_id=page_id,
+            properties={"Status": {"select": {"name": "Done"}}},
+        )
+        await query.edit_message_text(f"✅ Закрыла: {name}")
+    except Exception:
+        await query.edit_message_text("Не удалось закрыть задачу.")
+
+
 async def handle_tasks_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat.id != CHAT_ID:
         return
@@ -336,16 +376,20 @@ async def handle_tasks_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not lines:
         return
 
+    added = []
     for item in lines:
         add_task(item)
+        added.append(item)
 
-    if len(lines) == 1:
-        reply = f"🔲 Добавила: {lines[0]}\n\n_Напиши 'готово: {lines[0]}' когда сделаешь._"
+    if len(added) == 1:
+        reply = f"🔲 {added[0]}"
     else:
-        bullet = "\n".join(f"🔲 {l}" for l in lines)
-        reply = f"Добавила {len(lines)} задачи:\n{bullet}"
+        reply = "Добавила:\n" + "\n".join(f"🔲 {l}" for l in added)
 
-    await update.message.reply_text(reply, parse_mode="Markdown")
+    tasks = get_open_tasks()
+    await update.message.reply_text(
+        reply, reply_markup=tasks_keyboard(tasks)
+    )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -357,6 +401,7 @@ def main() -> None:
     app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("brief", cmd_brief))
     app.add_handler(CommandHandler("skip", cmd_skip))
+    app.add_handler(CallbackQueryHandler(handle_button, pattern=r"^done:"))
     app.add_handler(
         MessageHandler(
             filters.TEXT & filters.Regex(r"(?i)^(готово|сделала|done|✓):"),
@@ -369,7 +414,7 @@ def main() -> None:
     jq.run_daily(job_morning_brief, time=time(6, 0, tzinfo=TZ))
     jq.run_daily(job_evening_checkin, time=time(21, 0, tzinfo=TZ))
 
-    app.run_polling(allowed_updates=["message"])
+    app.run_polling(allowed_updates=["message", "callback_query"])
 
 
 if __name__ == "__main__":
