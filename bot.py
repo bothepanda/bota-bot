@@ -37,9 +37,10 @@ notion = Client(auth=NOTION_TOKEN)
 # ── Google helpers ───────────────────────────────────────────────────────────
 
 def _google_creds() -> Credentials:
+    import google.auth.transport.requests
     token_json = os.environ["GOOGLE_TOKEN"]
     data = json.loads(token_json)
-    return Credentials(
+    creds = Credentials(
         token=data["token"],
         refresh_token=data["refresh_token"],
         token_uri=data["token_uri"],
@@ -47,6 +48,9 @@ def _google_creds() -> Credentials:
         client_secret=data["client_secret"],
         scopes=data["scopes"],
     )
+    if not creds.valid:
+        creds.refresh(google.auth.transport.requests.Request())
+    return creds
 
 
 def get_gmail_summary() -> str:
