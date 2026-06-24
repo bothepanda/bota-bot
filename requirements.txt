@@ -1,3 +1,5 @@
 python-telegram-bot[job-queue]==21.6
 notion-client==2.2.1
 pytz==2024.1
+google-api-python-client==2.136.0
+google-auth-oauthlib==1.2.1

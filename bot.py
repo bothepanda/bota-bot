@@ -1,9 +1,12 @@
+import json
 import logging
 import os
 import re
 from datetime import date, datetime, time, timedelta
 
 import pytz
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 from notion_client import Client
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonCommands, Update
 from telegram.ext import (
@@ -29,6 +32,79 @@ CONTENT_DB = "f830908b50164930bbbba96b59dcc4af"
 TZ = pytz.timezone("Asia/Almaty")
 
 notion = Client(auth=NOTION_TOKEN)
+
+
+# ── Google helpers ───────────────────────────────────────────────────────────
+
+def _google_creds() -> Credentials:
+    token_json = os.environ["GOOGLE_TOKEN"]
+    data = json.loads(token_json)
+    return Credentials(
+        token=data["token"],
+        refresh_token=data["refresh_token"],
+        token_uri=data["token_uri"],
+        client_id=data["client_id"],
+        client_secret=data["client_secret"],
+        scopes=data["scopes"],
+    )
+
+
+def get_gmail_summary() -> str:
+    try:
+        creds = _google_creds()
+        service = build("gmail", "v1", credentials=creds)
+        results = service.users().messages().list(
+            userId="me", q="is:unread", maxResults=10
+        ).execute()
+        messages = results.get("messages", [])
+        if not messages:
+            return "нет непрочитанных писем"
+        lines = []
+        for msg in messages[:8]:
+            m = service.users().messages().get(
+                userId="me", id=msg["id"], format="metadata",
+                metadataHeaders=["From", "Subject"]
+            ).execute()
+            headers = {h["name"]: h["value"] for h in m["payload"]["headers"]}
+            subject = headers.get("Subject", "(без темы)")[:60]
+            sender = headers.get("From", "?").split("<")[0].strip()[:30]
+            lines.append(f"• {sender}: {subject}")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"gmail error: {e}")
+        return "ошибка загрузки почты"
+
+
+def get_calendar_today() -> str:
+    try:
+        creds = _google_creds()
+        service = build("calendar", "v3", credentials=creds)
+        now = datetime.now(TZ)
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        end = now.replace(hour=23, minute=59, second=59, microsecond=0).isoformat()
+        events_result = service.events().list(
+            calendarId="primary",
+            timeMin=start,
+            timeMax=end,
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+        events = events_result.get("items", [])
+        if not events:
+            return "нет событий на сегодня"
+        lines = []
+        for e in events:
+            title = e.get("summary", "(без названия)")
+            start_raw = e["start"].get("dateTime", e["start"].get("date", ""))
+            if "T" in start_raw:
+                t = datetime.fromisoformat(start_raw).strftime("%H:%M")
+                lines.append(f"• {t} — {title}")
+            else:
+                lines.append(f"• {title}")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"calendar error: {e}")
+        return "ошибка загрузки календаря"
 
 
 # ── Notion helpers ──────────────────────────────────────────────────────────
@@ -232,12 +308,13 @@ def build_brief() -> str:
         parts.append("нет дедлайнов")
     parts.append("")
 
-    parts.append("*━━ КОНТЕНТ В РАБОТЕ ━━*")
-    if content:
-        for c in content:
-            parts.append(f"✍️ {_page_title(c)}")
-    else:
-        parts.append("нет активного контента")
+    parts.append("")
+    parts.append("*━━ КАЛЕНДАРЬ ━━*")
+    parts.append(get_calendar_today())
+
+    parts.append("")
+    parts.append("*━━ ПОЧТА ━━*")
+    parts.append(get_gmail_summary())
 
     return "\n".join(parts)
 
@@ -410,6 +487,29 @@ async def cmd_brief(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Ошибка при сборке брифинга: {e}")
 
 
+async def cmd_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_chat.id != CHAT_ID:
+        return
+    try:
+        content = get_content_active()
+        if not content:
+            await update.message.reply_text("нет контента в работе")
+            return
+        lines = ["*━━ КОНТЕНТ ━━*"]
+        for c in content:
+            title = _page_title(c)
+            props = c["properties"]
+            status = (props.get("Status") or {}).get("select") or {}
+            status_name = status.get("name", "")
+            line = f"✍️ {title}"
+            if status_name:
+                line += f" _{status_name}_"
+            lines.append(line)
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка: {e}")
+
+
 async def cmd_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat.id != CHAT_ID:
         return
@@ -487,6 +587,7 @@ async def post_init(app: Application) -> None:
     await app.bot.set_my_commands([
         BotCommand("brief", "☀️ Брифинг на сегодня"),
         BotCommand("tasks", "🔲 Открытые задачи"),
+        BotCommand("content", "✍️ Контент в работе"),
         BotCommand("skip", "🌙 Пропустить вечернюю сверку"),
     ])
     await app.bot.set_chat_menu_button(
@@ -500,6 +601,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("brief", cmd_brief))
+    app.add_handler(CommandHandler("content", cmd_content))
     app.add_handler(CommandHandler("skip", cmd_skip))
     app.add_handler(CallbackQueryHandler(handle_button, pattern=r"^done:"))
     app.add_handler(
