@@ -57,25 +57,42 @@ def get_open_tasks() -> list:
     return results["results"]
 
 
+def _fuzzy_match(query: str, candidate: str) -> float:
+    q_words = set(w.lower() for w in query.split() if len(w) > 2)
+    c_words = set(w.lower() for w in candidate.split() if len(w) > 2)
+    if not q_words:
+        return 0.0
+    return len(q_words & c_words) / len(q_words)
+
+
 def mark_done(task_name: str) -> bool:
     results = notion.databases.query(
         database_id=TASKS_DB,
         filter={
-            "and": [
-                {"property": "Name", "rich_text": {"contains": task_name}},
-                {
-                    "or": [
-                        {"property": "Status", "select": {"equals": "Open"}},
-                        {"property": "Status", "select": {"equals": "Unknown"}},
-                    ]
-                },
+            "or": [
+                {"property": "Status", "select": {"equals": "Open"}},
+                {"property": "Status", "select": {"equals": "Unknown"}},
             ]
         },
     )
     if not results["results"]:
         return False
+
+    best_page = None
+    best_score = 0.0
+    for page in results["results"]:
+        titles = page["properties"]["Name"]["title"]
+        title = titles[0]["plain_text"] if titles else ""
+        score = _fuzzy_match(task_name, title)
+        if score > best_score:
+            best_score = score
+            best_page = page
+
+    if best_score < 0.4 or best_page is None:
+        return False
+
     notion.pages.update(
-        page_id=results["results"][0]["id"],
+        page_id=best_page["id"],
         properties={"Status": {"select": {"name": "Done"}}},
     )
     return True
