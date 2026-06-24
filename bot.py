@@ -57,7 +57,9 @@ def get_gmail_summary() -> str:
         creds = _google_creds()
         service = build("gmail", "v1", credentials=creds)
         results = service.users().messages().list(
-            userId="me", q="is:unread", maxResults=10
+            userId="me",
+            q="is:unread -from:noreply -from:no-reply -from:notifications -from:mailer -category:promotions -category:updates -category:social",
+            maxResults=10
         ).execute()
         messages = results.get("messages", [])
         if not messages:
