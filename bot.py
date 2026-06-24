@@ -52,6 +52,24 @@ def _google_creds() -> Credentials:
     return creds
 
 
+def get_weather() -> str:
+    try:
+        import urllib.request
+        key = os.environ.get("OWM_KEY", "")
+        if not key:
+            return "нет ключа погоды"
+        url = f"https://api.openweathermap.org/data/2.5/weather?q=Astana,KZ&appid={key}&units=metric&lang=ru"
+        with urllib.request.urlopen(url, timeout=5) as r:
+            data = json.loads(r.read())
+        temp = round(data["main"]["temp"])
+        feels = round(data["main"]["feels_like"])
+        desc = data["weather"][0]["description"]
+        return f"{temp}°C, ощущается {feels}°C, {desc}"
+    except Exception as e:
+        logger.error(f"weather error: {e}")
+        return "ошибка погоды"
+
+
 def get_gmail_summary() -> str:
     try:
         creds = _google_creds()
@@ -293,7 +311,7 @@ def build_brief() -> str:
     day_ru = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"][now.weekday()]
     date_str = now.strftime(f"%d.%m.%Y, {day_ru}")
 
-    parts = [f"☀️ *{date_str}*\n"]
+    parts = [f"☀️ *{date_str}* — {get_weather()}\n"]
 
     parts.append("*━━ ЗАДАЧИ ━━*")
     parts.append(format_open_tasks(tasks))
