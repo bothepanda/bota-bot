@@ -199,9 +199,21 @@ def format_open_tasks(tasks: list) -> str:
 
 
 def build_brief() -> str:
-    tasks = get_open_tasks()
-    deadlines = get_deadlines()
-    content = get_content_active()
+    try:
+        tasks = get_open_tasks()
+    except Exception as e:
+        logger.error(f"build_brief tasks error: {e}")
+        tasks = []
+    try:
+        deadlines = get_deadlines()
+    except Exception as e:
+        logger.error(f"build_brief deadlines error: {e}")
+        deadlines = []
+    try:
+        content = get_content_active()
+    except Exception as e:
+        logger.error(f"build_brief content error: {e}")
+        content = []
 
     now = datetime.now(TZ)
     day_ru = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"][now.weekday()]
@@ -400,7 +412,12 @@ async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_brief(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat.id != CHAT_ID:
         return
-    await update.message.reply_text(build_brief(), parse_mode="Markdown")
+    try:
+        text = build_brief()
+        await update.message.reply_text(text, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"cmd_brief error: {e}")
+        await update.message.reply_text(f"Ошибка при сборке брифинга: {e}")
 
 
 async def cmd_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
