@@ -119,32 +119,15 @@ def mark_unknown_if_open_yesterday() -> None:
 
 
 def get_deadlines() -> list:
-    today = date.today()
-    future = (today + timedelta(days=30)).isoformat()
     results = notion.databases.query(
         database_id=DEADLINES_DB,
-        filter={
-            "and": [
-                {"property": "Deadline", "date": {"on_or_after": today.isoformat()}},
-                {"property": "Deadline", "date": {"on_or_before": future}},
-            ]
-        },
         sorts=[{"property": "Deadline", "direction": "ascending"}],
     )
     return results["results"]
 
 
 def get_content_active() -> list:
-    results = notion.databases.query(
-        database_id=CONTENT_DB,
-        filter={
-            "or": [
-                {"property": "Status", "select": {"equals": "In Progress"}},
-                {"property": "Status", "select": {"equals": "Draft"}},
-                {"property": "Status", "select": {"equals": "drafting"}},
-            ]
-        },
-    )
+    results = notion.databases.query(database_id=CONTENT_DB)
     return results["results"]
 
 
@@ -227,7 +210,7 @@ def build_brief() -> str:
 
     parts.append("*━━ ДЕДЛАЙНЫ (30 дней) ━━*")
     if deadlines:
-        for d in deadlines[:6]:
+        for d in deadlines:
             props = d["properties"]
             name = _page_title(d)
             dl = (props.get("Deadline") or {}).get("date") or {}
@@ -244,7 +227,7 @@ def build_brief() -> str:
 
     parts.append("*━━ КОНТЕНТ В РАБОТЕ ━━*")
     if content:
-        for c in content[:4]:
+        for c in content:
             parts.append(f"✍️ {_page_title(c)}")
     else:
         parts.append("нет активного контента")
