@@ -445,14 +445,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat.id != CHAT_ID:
         return
     await update.message.reply_text(
-        "Привет! Я твой планировщик дня.\n\n"
-        "Просто напиши задачи — каждую на новой строке.\n\n"
-        "Команды:\n"
-        "/brief — брифинг прямо сейчас\n"
-        "/tasks — открытые задачи с кнопками\n"
-        "/skip — пропустить вечернюю сверку\n\n"
-        "_Обновить задачу:_\n"
-        "`обнови: who youth council → отправила заявку, проверить ответ 1 августа 2026`",
+        "Привет! Просто пиши задачи — сохраню в Notion.\n\n"
+        "/brief — брифинг на сегодня\n"
+        "/tasks — открытые задачи\n"
+        "/content — контент в работе\n\n"
+        "Ключевые слова: `обнови`, `удали`, `готово`",
         parse_mode="Markdown",
     )
 
