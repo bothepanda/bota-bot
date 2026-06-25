@@ -130,7 +130,8 @@ def get_calendar_today() -> str:
             title = e.get("summary", "(без названия)")
             start_raw = e["start"].get("dateTime", e["start"].get("date", ""))
             if "T" in start_raw:
-                t = datetime.fromisoformat(start_raw).strftime("%H:%M")
+                start_raw = start_raw.replace("Z", "+00:00")
+                t = datetime.fromisoformat(start_raw).astimezone(TZ).strftime("%H:%M")
                 lines.append(f"• {t} — {title}")
             else:
                 lines.append(f"• {title}")
