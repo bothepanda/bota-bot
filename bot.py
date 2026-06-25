@@ -547,6 +547,38 @@ async def cmd_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Окей 🌙")
 
 
+async def handle_delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_chat.id != CHAT_ID:
+        return
+    text = update.message.text.strip()
+    m = re.match(r"(?i)удали[\s:–\-]+(.+)", text)
+    task_name = m.group(1).strip() if m else text
+    results = notion.databases.query(
+        database_id=TASKS_DB,
+        filter={
+            "or": [
+                {"property": "Status", "select": {"equals": "Open"}},
+                {"property": "Status", "select": {"equals": "Unknown"}},
+            ]
+        },
+    )
+    best_page = None
+    best_score = 0.0
+    for page in results["results"]:
+        titles = page["properties"]["Name"]["title"]
+        title = titles[0]["plain_text"] if titles else ""
+        score = _fuzzy_match(task_name, title)
+        if score > best_score:
+            best_score = score
+            best_page = page
+    if best_score < 0.3 or best_page is None:
+        await update.message.reply_text(f"Не нашла задачу «{task_name}».")
+        return
+    notion.pages.update(page_id=best_page["id"], properties={"archived": True})
+    name = _task_title(best_page)
+    await update.message.reply_text(f"🗑 Удалила: {name}")
+
+
 async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat.id != CHAT_ID:
         return
@@ -639,6 +671,12 @@ def main() -> None:
         MessageHandler(
             filters.TEXT & filters.Regex(r"(?i)^обнови[:\s]"),
             handle_update_task,
+        )
+    )
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & filters.Regex(r"(?i)^удали[:\s]?"),
+            handle_delete_task,
         )
     )
     app.add_handler(
