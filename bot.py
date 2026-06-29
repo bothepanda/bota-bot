@@ -438,6 +438,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Привет! Просто пиши задачи — сохраню в Notion.\n\n"
         "/brief — брифинг на сегодня\n"
         "/tasks — открытые задачи\n"
+        "/checkin — вечерняя сверка\n"
         "/content — контент в работе\n\n"
         "Ключевые слова: `обнови`, `удали`, `готово`",
         parse_mode="Markdown",
@@ -529,6 +530,23 @@ async def cmd_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
     except Exception as e:
         await update.message.reply_text(f"Ошибка: {e}")
+
+
+async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_chat.id != CHAT_ID:
+        return
+    tasks = get_open_tasks()
+    if not tasks:
+        await update.message.reply_text("нет открытых задач ✨")
+        return
+    lines = ["🌙 *Вечерняя сверка*\n\nЧто из этого сделала?"]
+    for t in tasks:
+        lines.append(f"🔲 {_task_title(t)}")
+    await update.message.reply_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=tasks_keyboard(tasks),
+    )
 
 
 async def cmd_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -654,6 +672,7 @@ async def post_init(app: Application) -> None:
         BotCommand("brief", "☀️ Брифинг на сегодня"),
         BotCommand("tasks", "🔲 Открытые задачи"),
         BotCommand("content", "✍️ Контент в работе"),
+        BotCommand("checkin", "🌙 Вечерняя сверка"),
         BotCommand("skip", "🌙 Пропустить вечернюю сверку"),
     ])
     await app.bot.set_chat_menu_button(
@@ -668,6 +687,7 @@ def main() -> None:
     app.add_handler(CommandHandler("tasks", cmd_tasks))
     app.add_handler(CommandHandler("brief", cmd_brief))
     app.add_handler(CommandHandler("content", cmd_content))
+    app.add_handler(CommandHandler("checkin", cmd_checkin))
     app.add_handler(CommandHandler("skip", cmd_skip))
     app.add_handler(CallbackQueryHandler(handle_button, pattern=r"^done:"))
     app.add_handler(
