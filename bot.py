@@ -623,18 +623,15 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             page_id=page_id,
             properties={"Status": {"select": {"name": "Done"}}},
         )
+        await query.answer(text=f"✅ {name}")
         remaining = get_open_tasks()
         if remaining:
-            text = f"✅ {name}\n\n*Открытые задачи:*\n" + format_open_tasks(remaining)
-            await query.edit_message_text(
-                text,
-                parse_mode="Markdown",
-                reply_markup=tasks_keyboard(remaining),
-            )
+            await query.edit_message_reply_markup(reply_markup=tasks_keyboard(remaining))
         else:
-            await query.edit_message_text(f"✅ {name}\n\nнет открытых задач ✨")
-    except Exception:
-        await query.edit_message_text("Не удалось закрыть задачу.")
+            await query.edit_message_reply_markup(reply_markup=None)
+    except Exception as e:
+        logger.error(f"handle_button error: {e}")
+        await query.answer(text="Не удалось закрыть задачу.", show_alert=True)
 
 
 _HEADER_WORDS = {
