@@ -414,17 +414,7 @@ async def job_morning_brief(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def job_evening_checkin(context: ContextTypes.DEFAULT_TYPE) -> None:
-    today = date.today().isoformat()
-    results = notion.databases.query(
-        database_id=TASKS_DB,
-        filter={
-            "and": [
-                {"property": "Status", "select": {"equals": "Open"}},
-                {"property": "Date", "date": {"equals": today}},
-            ]
-        },
-    )
-    tasks = results["results"]
+    tasks = get_open_tasks()
     if not tasks:
         return
 
@@ -620,11 +610,24 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await query.edit_message_text("Не удалось закрыть задачу.")
 
 
+_HEADER_WORDS = {
+    "задачи", "задача", "планы", "план", "дела", "список", "todo",
+    "задачи на сегодня", "задачи на день", "планы на день", "план на день",
+    "мои задачи", "сегодня", "на сегодня",
+}
+
+
+def _is_header(line: str) -> bool:
+    if line.endswith(":"):
+        return True
+    return line.lower().rstrip(": ") in _HEADER_WORDS
+
+
 async def handle_tasks_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat.id != CHAT_ID:
         return
     text = update.message.text.strip()
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    lines = [l.strip() for l in text.splitlines() if l.strip() and not _is_header(l.strip())]
     if not lines:
         return
 
